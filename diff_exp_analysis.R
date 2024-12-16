@@ -1,55 +1,54 @@
 # Load necessary libraries
+if (!require("BiocManager", quietly = TRUE, ))
+  install.packages("BiocManager",lib = "~/R_libs")
+BiocManager::install()
+BiocManager::install("tximport",lib = "~/R_libs")
+
 if (!requireNamespace("NOISeq", quietly = TRUE)) {
-  install.packages("BiocManager")
-  BiocManager::install("NOISeq")
+  install.packages("BiocManager",lib = "~/R_libs")
+  BiocManager::install("NOISeq",lib = "~/R_libs")
 }
 if (!requireNamespace("DESeq2", quietly = TRUE)) {
-  install.packages("BiocManager")
-  BiocManager::install("DESeq2")
-}
-if (!requireNamespace("ShrinkBayes", quietly = TRUE)) {
-    install.packages("BiocManager")
-    BiocManager::install("ShrinkBayes")
-}
-if (!requireNamespace("ShrinkBayes", quietly = TRUE)) {
-      install.packages("BiocManager")
-      BiocManager::install("ShrinkBayes")
+  install.packages("BiocManager",lib = "~/R_libs")
+  BiocManager::install("DESeq2",lib = "~/R_libs")
 }
 if (!requireNamespace("edgeR", quietly = TRUE)) {
-  install.packages("BiocManager")
-  BiocManager::install("edgeR")
+  install.packages("BiocManager",lib = "~/R_libs")
+  BiocManager::install("edgeR",lib = "~/R_libs")
 }
 if (!requireNamespace("voom", quietly = TRUE)) {
-  install.packages("BiocManager")
-  BiocManager::install("voom")
+  install.packages("BiocManager",lib = "~/R_libs")
+  BiocManager::install("voom",lib = "~/R_libs")
 }
 if (!requireNamespace("DESingle", quietly = TRUE)) {
   install.packages("BiocManager")
-  BiocManager::install("DESingle")
+  BiocManager::install("DESingle",lib = "~/R_libs")
 }
 
-library(tximport)
 
-# Packages for DE analysis:
+library(tximport)
 library(NOISeq)
 library(DESeq2)
-library(ShrinkBayes)
+#library(ShrinkBayes)
 library(edgeR)
 library(voom)
 library(DESingle)
 
-files <- c("quants.sf") # Path to quant file. (from salmon)
-
-tx2gene <- read.csv("tx2gene.csv") #transcript-to-gene mapping
+files <- c("C:/Users/ThinkPad/Documents/bioinformatics/quants.sf") # Path to quant file. (from salmon)
+print(files) #PRINT
+tx2gene <- read.csv("C:/Users/ThinkPad/Documents/bioinformatics/tx2gene.csv") #transcript-to-gene mapping
+print(tx2gene)
 
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
-
+print(txi) #PRINT
 counts <- txi$counts # Extract counts
+
+head(counts) #PRINT
 
 # Metadata
 meta <- data.frame(
   SampleID = colnames(counts),
-  Condition = c("Control", "Starvation")
+  Condition = c("Control") # Add Starvation also as condition
 )
 
 rownames(meta) <- meta$SampleID
@@ -89,5 +88,42 @@ ggplot(ma_plot_data, aes(x = logFC, y = -log10(pvalue))) +
   labs(x = "Log2 Fold Change", y = "-log10(p-value)", title = "MA-Plot")
 
 
+# DGEList
+dge <- DGEList(counts = counts, group = meta$Condition)
+dge
+dge <- calcNormFactors(dge) # Normalise
+dge$samples # View normalised data
+dge_result <- exactTest(dge)
+topTags(dge_result)
+
+#Plot
+plotMA(dge_result, main = "MA-Plot")
+rld <- rlog(dge)  # rlog transformation for PCA 
+plotPCA(rld, intgroup = "Condition") # Plot PCA
 
 
+
+# Voom
+
+design <- model.matrix(~ 0 + meta$Condition)
+colnames(design) <- levels(meta$Condition)
+design # View design matrix
+
+v <- voom(counts, design, plot = TRUE) # Voom transformation
+head(v$E)  # E = transformed expression data, view the voom transformation
+
+fit <- lmFit(v, design) # Fit with linear model
+fit2 <- contrasts.fit(fit, contrasts = c(-1, 1))  # DE analysis between conditions
+fit2 <- eBayes(fit2) 
+topTable(fit2) # View table of results
+
+
+# Plot
+plotMA(fit2, main = "MA-Plot", ylim = c(-5, 5))
+voom_table <- topTable(fit2, adjust = "fdr", p.value = 0.05)
+
+
+# Create a combined table for all the DE analysis pipelines.
+
+combined_results <- Reduce(function(x, y) merge(x, y, by = "GeneID", all = TRUE),
+                           list(DESeq2_table, edgeR_table, voom_table))
