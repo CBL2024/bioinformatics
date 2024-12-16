@@ -38,27 +38,56 @@ library(edgeR)
 library(voom)
 library(DESingle)
 
-  
+files <- c("quants.sf") # Path to quant file. (from salmon)
 
+tx2gene <- read.csv("tx2gene.csv") #transcript-to-gene mapping
 
-files <- c("sample1.sf", "sample2.sf, "sample3.sf", "sample4.sf", "sample5.sf")
-tx2gene <- read.csv("tx2gene.csv") # Contains transcript-to-gene mapping
-
-# Import counts
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
 
-# Access gene-level counts
-counts <- txi$counts
+counts <- txi$counts # Extract counts
 
 # Metadata
 meta <- data.frame(
   SampleID = colnames(counts),
-  Condition = c("Control", "Control", "Starvation", "Starvation")
+  Condition = c("Control", "Starvation")
 )
 
 rownames(meta) <- meta$SampleID
 
-# Create the NOISeq object
-# `counts` is the count matrix, and `meta` is the sample metadata
-data <- readData(data = counts, conditions = meta$Condition)
+# NOISeq 
+
+noi_obj <- readData(data = counts, conditions = meta$Condition)
+
+
+# DESeq2 
+
+dds <- DESeqDataSetFromMatrix(countData = counts, colData = meta, design = ~ Condition)
+dds
+dds <- DESeq(dds)
+res <- results(dds)
+head(res)
+# Plot
+plotMA(res, main = "MA Plot")
+rld <- rlog(dds, blind = TRUE)
+plotPCA(rld, intgroup = "Condition")
+DE_genes <- res[res$padj < 0.05 & abs(res$log2FoldChange) > 1, ]
+write.csv(DE_genes, "DE_genes_DESeq2.csv")
+
+
+# Shrink Bayes
+
+shrink_result <- shrinkbayes(counts = counts, design = meta$Condition, method = "bayes")
+shrink_result$results
+# Plot
+ma_plot_data <- data.frame(
+  logFC = shrink_result$results$logFC,
+  pvalue = shrink_result$results$pvalue
+)
+ggplot(ma_plot_data, aes(x = logFC, y = -log10(pvalue))) +
+  geom_point(alpha = 0.6) +
+  theme_minimal() +
+  labs(x = "Log2 Fold Change", y = "-log10(p-value)", title = "MA-Plot")
+
+
+
 
