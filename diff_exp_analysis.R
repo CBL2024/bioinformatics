@@ -1,58 +1,52 @@
 # Load necessary libraries
+install("devtools")
+
 if (!require("BiocManager", quietly = TRUE, ))
-  install.packages("BiocManager",lib = "~/R_libs")
-BiocManager::install()
-BiocManager::install("tximport",lib = "~/R_libs")
+  install.packages("BiocManager")
+BiocManager::install("tximport")
 
 if (!requireNamespace("NOISeq", quietly = TRUE)) {
-  install.packages("BiocManager",lib = "~/R_libs")
-  BiocManager::install("NOISeq",lib = "~/R_libs")
+  BiocManager::install("NOISeq")
 }
 if (!requireNamespace("DESeq2", quietly = TRUE)) {
-  install.packages("BiocManager",lib = "~/R_libs")
-  BiocManager::install("DESeq2",lib = "~/R_libs")
+  BiocManager::install("DESeq2")
 }
 if (!requireNamespace("edgeR", quietly = TRUE)) {
-  install.packages("BiocManager",lib = "~/R_libs")
-  BiocManager::install("edgeR",lib = "~/R_libs")
+  BiocManager::install("edgeR")
 }
 if (!requireNamespace("voom", quietly = TRUE)) {
-  install.packages("BiocManager",lib = "~/R_libs")
-  BiocManager::install("voom",lib = "~/R_libs")
+  BiocManager::install("voom")
 }
 if (!requireNamespace("DESingle", quietly = TRUE)) {
-  install.packages("BiocManager")
-  BiocManager::install("DESingle",lib = "~/R_libs")
-}
-if (!requireNamespace("ShrinkBayes", quietly = TRUE)) {
-  install.packages("BiocManager")
-  BiocManager::install("ShrinkBayes",lib = "~/R_libs")
+  BiocManager::install("DESingle")
 }
 
+install.packages(c("sp","pixmap", "snowfall", "VGAM", "mclust", "logcondens", "Iso","XML","rgl"), repos="http://cran.r-project.org")
+if (!requireNamespace("ShrinkBayes", quietly = TRUE)) {
+  BiocManager::install("ShrinkBayes")
+}
+
+library("devtools")
+install.packages("INLA", repos = c("https://inla.r-inla-download.org/R/stable", "https://cran.r-project.org"))
+install_github("markvdwiel/ShrinkBayes")
 
 setwd("C:/Users/ThinkPad/Documents/bioinformatics") # CHANGE THIS
-
-library(tximport)
-library(NOISeq)
-library(DESeq2)
-library(ShrinkBayes)
-library(edgeR)
-library(voom)
-library(DESingle)
+library("tximport")
+library("NOISeq")
+library("DESeq2")
+library("ShrinkBayes")
+library("edgeR")
+library("voom")
+library("DESingle")
 
 files <- c("quants.sf","quants2.sf","quants3.sf","quants4.sf") # Path to quant file. (from salmon)
 print(files) #PRINT
 tx2gene <- read.csv("tx2gene.csv") #transcript-to-gene mapping
-#print(tx2gene)
 
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
-#print(txi) #PRINT
 counts <- txi$counts # Extract counts
 
 head(counts) #PRINT
-#class(counts)
-#dim(counts)
-#colnames(counts)
 colnames(counts) <- c("Sample1", "Sample2", "Sample3", "Sample4")
 
 # Metadata
@@ -68,7 +62,6 @@ head(meta)
 # NOISeq 
 
 noi_obj <- readData(data = counts, conditions = meta$Condition)
-
 
 # DESeq2 
 
@@ -128,7 +121,6 @@ fit <- lmFit(v, design) # Fit with linear model
 fit2 <- contrasts.fit(fit, contrasts = c(-1, 1))  # DE analysis between conditions
 fit2 <- eBayes(fit2) 
 topTable(fit2) # View table of results
-
 
 # Plot
 plotMA(fit2, main = "MA-Plot", ylim = c(-5, 5))
