@@ -51,7 +51,7 @@ zcat ~/Desktop/bioinformatics/fly_assembly/data/*.fastq.gz | head -n 20
 # Step 2: Running QC checks, trimming and filtering data
 cd ../ # cd pack to the fly_assembly folder from the fly_assembly/data folder
 mkdir script
-vi ~Desktop/bioinformatics/fly_assembly/script/trim_data.sh
+vi ~/Desktop/bioinformatics/fly_assembly/script/trim_data.sh
 
 # Paste the following in trim_data.sh
 
