@@ -24,34 +24,46 @@ if (!requireNamespace("DESingle", quietly = TRUE)) {
   install.packages("BiocManager")
   BiocManager::install("DESingle",lib = "~/R_libs")
 }
+if (!requireNamespace("ShrinkBayes", quietly = TRUE)) {
+  install.packages("BiocManager")
+  BiocManager::install("ShrinkBayes",lib = "~/R_libs")
+}
 
+
+setwd("C:/Users/ThinkPad/Documents/bioinformatics") # CHANGE THIS
 
 library(tximport)
 library(NOISeq)
 library(DESeq2)
-#library(ShrinkBayes)
+library(ShrinkBayes)
 library(edgeR)
 library(voom)
 library(DESingle)
 
-files <- c("C:/Users/ThinkPad/Documents/bioinformatics/quants.sf") # Path to quant file. (from salmon)
+files <- c("quants.sf","quants2.sf","quants3.sf","quants4.sf") # Path to quant file. (from salmon)
 print(files) #PRINT
-tx2gene <- read.csv("C:/Users/ThinkPad/Documents/bioinformatics/tx2gene.csv") #transcript-to-gene mapping
-print(tx2gene)
+tx2gene <- read.csv("tx2gene.csv") #transcript-to-gene mapping
+#print(tx2gene)
 
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
-print(txi) #PRINT
+#print(txi) #PRINT
 counts <- txi$counts # Extract counts
 
 head(counts) #PRINT
+#class(counts)
+#dim(counts)
+#colnames(counts)
+colnames(counts) <- c("Sample1", "Sample2", "Sample3", "Sample4")
 
 # Metadata
 meta <- data.frame(
   SampleID = colnames(counts),
-  Condition = c("Control") # Add Starvation also as condition
+  Condition = c("Control","Control","Starvation","Starvation") # Add Starvation also as condition
 )
 
 rownames(meta) <- meta$SampleID
+
+head(meta)
 
 # NOISeq 
 
@@ -63,7 +75,7 @@ noi_obj <- readData(data = counts, conditions = meta$Condition)
 dds <- DESeqDataSetFromMatrix(countData = counts, colData = meta, design = ~ Condition)
 dds
 dds <- DESeq(dds)
-res <- results(dds)
+DESeq2_table <- results(dds)
 head(res)
 # Plot
 plotMA(res, main = "MA Plot")
