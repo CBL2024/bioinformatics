@@ -15,17 +15,13 @@ if (!requireNamespace("limma", quietly = TRUE)) {
 if (!requireNamespace("DEsingle", quietly = TRUE)) {
   BiocManager::install("DEsingle") }
 if (!requireNamespace("sleuth", quietly = TRUE)) {
-  BiocManager::install("pachterlab/sleuth") }"quant_files"
+  BiocManager::install("pachterlab/sleuth") }
 if (!requireNamespace("baySeq", quietly = TRUE)) {
   BiocManager::install("baySeq") }
-if (!requireNamespace("samr", quietly = TRUE)) {
-  BiocManager::install("samr") }
 if (!requireNamespace("parallel", quietly = TRUE)) {
   BiocManager::install("parallel") }
-BiocManager::install("rtracklayer")
 library(parallel)
 library(tximport)
-library(tracklayer)
 library(DESeq2)
 
 # Define control and starvation file paths
@@ -49,22 +45,7 @@ for (suffix in suffix_starvation) {
 }
 paths_df <- data.frame(conditions = conditions, paths = paths)
 
-# Import aligned data
-# files <- list.files(path = "quant_files", pattern = ".sf", full.names = TRUE, 
-#                     recursive = TRUE)
-# tx2gene <- read.csv("tx2gene.csv") #transcript-to-gene mapping
-
 # reference file
-gtf_file_path <- "~/bioinformatics/Drosophila_melanogastr.BDGP6.46.113.gtf"
-gtf_data <- tracklayer::import(gtf_file_path)
-tx2gene <- data.frame(
-  transcript_id = mcols(dtf_data)$transcript_id,
-  gene_id = mcols(dtf_data)$gene_id
-)
-
-# load reference data file #####################################################
-
-# Path to your GTF file
 gtf_file_path <- "~/bioinformatics/Drosophila_melanogaster.BDGP6.46.113.gtf"
 
 # Read the GTF file using read.table, skipping comments (lines starting with "#")
@@ -100,9 +81,6 @@ tx2gene <- data.frame(
 tx2gene <- na.omit(tx2gene)
 
 # View the first few rows of the tx2gene data frame
-head(tx2gene)
-
-################################################################################
 
 # Get count data
 txi <- tximport(paths_df$paths, type = "salmon", tx2gene = tx2gene)
@@ -143,13 +121,13 @@ noi_degs
 
 # DESeq2 
 library(DESeq2)
-
+counts <- round(counts)
 dds <- DESeqDataSetFromMatrix(countData = counts, colData = meta, design = ~ Condition)
 dds
 dds <- DESeq(dds)
-res <- results(dds)
-deseq_degs <- res[res$padj < 0.05 & abs(res$log2FoldChange) > 1, ]
-deseq_degs
+deseq_res <- results(dds)
+deseq_res
+
 
 # OUTPUT: DESeq2_degs
 
@@ -168,16 +146,21 @@ edger_degs
 # Voom
 library(limma)
 
-design <- model.matrix(~ 0 + meta$Condition)
-colnames(design) <- levels(meta$Condition)
+design <- model.matrix(~ 0 + meta$Condition)  
+colnames(design) <- c("Control", "Starvation")
 design # View design matrix
 v <- voom(counts, design, plot = FALSE) # Voom transformation
 fit <- lmFit(v, design) # Fit with linear model
-fit2 <- contrasts.fit(fit, contrasts = c(-1, 1))  # DE analysis between conditions
-fit2 <- eBayes(fit2) 
-limma <- topTable(fit2) # View table of results
-limma_degs <- limma[limma$adj.P.Val < 0.05, ] # Only DEs < 0.05 
-limma_degs
+
+contrast.matrix <- makeContrasts(
+  ConditionB_vs_ConditionA = Starvation - Control, 
+  levels = design
+)
+contrast.matrix
+
+fit <- contrasts.fit(fit, contrasts = contrast.matrix)  # DE analysis between conditions
+fit <- eBayes(fit) 
+limma_res <- topTable(fit, adjust = "BH", sort.by = "P", number = Inf)  
 
 
 #Sleuth
@@ -190,47 +173,44 @@ sleuth_degs
 
 # bayseq
 library(baySeq)
-cl <- makeCluster(4)
+Condition_factor <- as.factor(meta$Condition)
+
+cl <- makeCluster(16)
+
+groups <- list(
+  NDE = rep(1, length(Condition_factor)),  # Null hypothesis: All samples in one group
+  DE  = as.numeric(Condition_factor)       # Alternative hypothesis: 1 = Control, 2 = Starvation
+)
+groups
 
 CD <- new("countData", 
           data = counts, 
           replicates = as.factor(meta$Condition),  
-          groups = list(NDE = rep(1, length(meta$Condition)), # NDE = No differential expression = Null hyp
-                        DE = as.numeric(meta$Condition))) # DE = Differential expression = Alt hyp
+          groups = groups)
 
+libsizes(CD) <- getLibsizes(CD)
+libsizes(CD)
+
+CD@annotation <- data.frame(name = row.names(counts))
 
 CD <- getPriors.NB(CD, samplesize = 1000, estimation = "QL", cl=cl)
 
-CD <- getLikelihoods(CD, bootStraps = 3, verbose = FALSE)
-print(CD)
-
-CD@estProps # Estimate psoteria
-CD@posteriors[1:10,]
-CD@posteriors[101:110,]
-CD@estProps[2]
-
-topCounts(CD, group = "DE")
-
-results <- getDE(CD)
+CD@groups
+sapply(names(CD@groups), function(group) lapply(CD@priors$priors[[group]], head, 5))
 
 
-# SAMseq
-library(samr)
-samdata <- list(x = as.matrix(counts), y = as.factor(meta$Condition), 
-                geneid = rownames(counts), logged2 = FALSE)
-sam_res <- SAMseq(samdata$x, samdata$y, resp.type = "Quantitative", nperms = 1000)
-sam_degs <- sam_res$siggenes.table
-sam_degs
-colnames(sam_degs)[1] <- "Gene"
+CD2 <- getLikelihoods(CD, bootStraps = 10, verbose = TRUE)
 
-# combined table for all the DE analysis pipelines.
-# outputs to combined table: noi_degs, deseq_degs, edger_degs, limma_degs, sleuth_degs, sam_degs
-dim(noi_degs)
-dim(edger_degs)
+CD2@estProps
+CD2@posteriors[1:10,]
+CD2@posteriors[101:110,]
+CD2@estProps[2]
 
-combined_results <- merge(deseq_degs, noi_degs, edger_degs, by = col(deseq_degs)[0])
-combined_results
+write.csv(topCounts(CD2, group = "DE"),"~/bioinformatics/posteriors.csv")
 
-gene_ids <- rownames(combined_results)
-combined_results$Gene_Length <- gene_lengths[match(gene_ids, names(gene_lengths))]
-print(combined_results)
+stopCluster(cl)
+
+topCounts(CD2, group = "DE")
+
+plotMA.CD(CD2, samplesA = "control", samplesB = "starvation",
+          col = c(rep("red", 100), rep("black", 900)))
