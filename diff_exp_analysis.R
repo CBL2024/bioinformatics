@@ -114,9 +114,7 @@ library(samr)
 
 samdata <- list(x = as.matrix(counts), y = as.factor(meta$Condition), 
                 geneid = rownames(counts), logged2 = FALSE)
-
 sam_res <- SAMseq(samdata$x, samdata$y, resp.type = "Quantitative", nperms = 1000)
-
 sam_degs <- sam_res$siggenes.table
 sam_degs
 
