@@ -33,14 +33,14 @@ files <- list.files(path = "quant_files", pattern = ".sf", full.names = TRUE,
 tx2gene <- read.csv("tx2gene.csv") #transcript-to-gene mapping
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
 counts <- txi$counts # Extract counts
-colnames(counts) <- c("Sample1", "Sample2", "Sample3")
+colnames(counts) <- c("Sample1", "Sample2", "Sample3", "Sample4")
 counts
 gene_lengths <- rowMeans(txi$length, na.rm = TRUE) # Keep average gene lengths
 
 # Metadata
 meta <- data.frame(
   sample = colnames(counts),
-  Condition = c("Control", "Starvation","Starvation"), # Add Starvation also as condition
+  Condition = c("Control", "Control","Starvation","Starvation"), # Add Starvation also as condition
   path = files
 )
 
@@ -125,6 +125,7 @@ CD <- new("countData",
 CD <- getPriors.NB(CD, samplesize = 1000, estimation = "QL", cl=cl)
 
 CD <- getLikelihoods(CD, bootStraps = 3, verbose = FALSE)
+print(CD)
 
 CD@estProps # Estimate psoteria
 CD@posteriors[1:10,]
@@ -132,9 +133,8 @@ CD@posteriors[101:110,]
 CD@estProps[2]
 
 topCounts(CD, group = "DE")
-seglens <- mobAnnotation$end - mobAnnotation$start + 1
 
-cD <- new("countData", data = mobData, seglens = seglens, annotation = mobAnnotation)
+results <- getDE(CD)
 
 
 # SAMseq
