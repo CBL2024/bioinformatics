@@ -1,0 +1,6 @@
+NOISeqBIO - P
+DESeq2 - P
+sleuth - P
+edgeR - C
+limma - C
+BaySeq - C
