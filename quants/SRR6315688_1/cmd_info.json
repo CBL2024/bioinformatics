@@ -1,0 +1,10 @@
+{
+    "salmon_version": "1.4.0",
+    "index": "./data/Dmel6.32",
+    "libType": "A",
+    "mates1": "./data/fSRR6315688_1.fastq",
+    "mates2": "./data/fSRR6315688_2.fastq",
+    "threads": "8",
+    "output": "./data/quants/SRR6315688_1",
+    "auxDir": "aux_info"
+}
