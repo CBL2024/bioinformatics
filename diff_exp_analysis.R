@@ -1,133 +1,134 @@
-# Load necessary libraries
-install("devtools")
+setwd("C:/Users/Claudia/Documents/bioinformatics") # CHANGE THIS
 
-if (!require("BiocManager", quietly = TRUE, ))
-  install.packages("BiocManager")
-BiocManager::install("tximport")
-
-if (!requireNamespace("NOISeq", quietly = TRUE)) {
-  BiocManager::install("NOISeq")
-}
+if (!require("BiocManager", quietly = TRUE, )) {
+  install.packages("BiocManager") }
+if (!require("devtools", quietly = TRUE, )) {
+  install.packages("devtools") }
+if (!require("tximport", quietly = TRUE, )) {
+  BiocManager::install("tximport") }
+if (!requireNamespace("NOISeqBIO ", quietly = TRUE)) {
+  BiocManager::install("NOISeq") }
 if (!requireNamespace("DESeq2", quietly = TRUE)) {
-  BiocManager::install("DESeq2")
-}
+  BiocManager::install("DESeq2") }
 if (!requireNamespace("edgeR", quietly = TRUE)) {
-  BiocManager::install("edgeR")
-}
-if (!requireNamespace("voom", quietly = TRUE)) {
-  BiocManager::install("voom")
-}
-if (!requireNamespace("DESingle", quietly = TRUE)) {
-  BiocManager::install("DESingle")
-}
+  BiocManager::install("edgeR") }
+if (!requireNamespace("limma", quietly = TRUE)) {
+  BiocManager::install("limma") }
+if (!requireNamespace("DEsingle", quietly = TRUE)) {
+  BiocManager::install("DEsingle") }
+if (!requireNamespace("sleuth", quietly = TRUE)) {
+  BiocManager::install("pachterlab/sleuth") }
+if (!requireNamespace("baySeq", quietly = TRUE)) {
+  BiocManager::install("baySeq") }
+if (!requireNamespace("samr", quietly = TRUE)) {
+  BiocManager::install("samr") }
 
-install.packages(c("sp","pixmap", "snowfall", "VGAM", "mclust", "logcondens", "Iso","XML","rgl"), repos="http://cran.r-project.org")
-if (!requireNamespace("ShrinkBayes", quietly = TRUE)) {
-  BiocManager::install("ShrinkBayes")
-}
+library(tximport)
 
-library("devtools")
-install.packages("INLA", repos = c("https://inla.r-inla-download.org/R/stable", "https://cran.r-project.org"))
-install_github("markvdwiel/ShrinkBayes")
-
-setwd("C:/Users/ThinkPad/Documents/bioinformatics") # CHANGE THIS
-library("tximport")
-library("NOISeq")
-library("DESeq2")
-library("ShrinkBayes")
-library("edgeR")
-library("voom")
-library("DESingle")
-
-files <- c("quants.sf","quants2.sf","quants3.sf","quants4.sf") # Path to quant file. (from salmon)
-print(files) #PRINT
+# Import aligned data
+files <- list.files(path = "quant_files", pattern = ".sf", full.names = TRUE, 
+                    recursive = TRUE)
 tx2gene <- read.csv("tx2gene.csv") #transcript-to-gene mapping
-
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
 counts <- txi$counts # Extract counts
+colnames(counts) <- c("Sample1", "Sample2", "Sample3")
 
-head(counts) #PRINT
-colnames(counts) <- c("Sample1", "Sample2", "Sample3", "Sample4")
+gene_lengths <- rowMeans(txi$length, na.rm = TRUE) # Keep average gene lengths
 
 # Metadata
 meta <- data.frame(
-  SampleID = colnames(counts),
-  Condition = c("Control","Control","Starvation","Starvation") # Add Starvation also as condition
+  sample = colnames(counts),
+  Condition = c("Control", "Starvation","Starvation"), # Add Starvation also as condition
+  path = files
 )
 
-rownames(meta) <- meta$SampleID
-
+rownames(meta) <- meta$sample
 head(meta)
 
 # NOISeq 
+library(NOISeq)
 
-noi_obj <- readData(data = counts, conditions = meta$Condition)
+noi_obj <- readData(data = counts, factor = meta)
+noi_res <- noiseq(noi_obj, 
+                  factor = "Condition", 
+                  norm = "tmm", 
+                  replicates = "biological")
+# *****This uses tmm normalisation*****
+up <- degenes(noi_res, q = 0.9, M = "up")
+down <- degenes(noi_res, q = 0.9, M = "down")
+noi_degs <- rbind(up, down)
+noi_degs
+
+# OUTPUT: noi_degs
 
 # DESeq2 
+library(DESeq2)
 
 dds <- DESeqDataSetFromMatrix(countData = counts, colData = meta, design = ~ Condition)
 dds
 dds <- DESeq(dds)
-DESeq2_table <- results(dds)
-head(res)
-# Plot
-plotMA(res, main = "MA Plot")
-rld <- rlog(dds, blind = TRUE)
-plotPCA(rld, intgroup = "Condition")
-DE_genes <- res[res$padj < 0.05 & abs(res$log2FoldChange) > 1, ]
-write.csv(DE_genes, "DE_genes_DESeq2.csv")
+res <- results(dds)
+head(DESeq2_table)
+deseq_degs <- res[res$padj < 0.05 & abs(res$log2FoldChange) > 1, ]
+deseq_degs
+
+# OUTPUT: DESeq2_degs
 
 
-# Shrink Bayes
+library(edgeR)
 
-shrink_result <- shrinkbayes(counts = counts, design = meta$Condition, method = "bayes")
-shrink_result$results
-# Plot
-ma_plot_data <- data.frame(
-  logFC = shrink_result$results$logFC,
-  pvalue = shrink_result$results$pvalue
-)
-ggplot(ma_plot_data, aes(x = logFC, y = -log10(pvalue))) +
-  geom_point(alpha = 0.6) +
-  theme_minimal() +
-  labs(x = "Log2 Fold Change", y = "-log10(p-value)", title = "MA-Plot")
-
-
-# DGEList
 dge <- DGEList(counts = counts, group = meta$Condition)
 dge
-dge <- calcNormFactors(dge) # Normalise
-dge$samples # View normalised data
-dge_result <- exactTest(dge)
-topTags(dge_result)
-
-#Plot
-plotMA(dge_result, main = "MA-Plot")
-rld <- rlog(dge)  # rlog transformation for PCA 
-plotPCA(rld, intgroup = "Condition") # Plot PCA
-
-
+dge <- calcNormFactors(dge) # TMM - Trimmed Mean of M-values
+dge <- estimateDisp(dge)
+dge_result <- exactTest(dge) # the exact test (for 2-group comparison)
+edger_degs <- topTags(dge_result)
+edger_degs
 
 # Voom
+library(limma)
 
 design <- model.matrix(~ 0 + meta$Condition)
 colnames(design) <- levels(meta$Condition)
 design # View design matrix
-
 v <- voom(counts, design, plot = TRUE) # Voom transformation
-head(v$E)  # E = transformed expression data, view the voom transformation
-
 fit <- lmFit(v, design) # Fit with linear model
 fit2 <- contrasts.fit(fit, contrasts = c(-1, 1))  # DE analysis between conditions
 fit2 <- eBayes(fit2) 
-topTable(fit2) # View table of results
+limma_degs <- topTable(fit2) # View table of results
+limma_degs
 
-# Plot
-plotMA(fit2, main = "MA-Plot", ylim = c(-5, 5))
-voom_table <- topTable(fit2, adjust = "fdr", p.value = 0.05)
+#Sleuth
+library(sleuth)
+so <- sleuth_prep(meta, ~ condition)
+so <- sleuth_fit(so, ~ condition)
+sleuth_fit_summary(so)
+sleuth_degs <- sleuth_wald(so, hypothesis = "conditionTreatment")
+sleuth_degs
+
+# bayseq
+#library(baySeq)
+
+# SAMseq
+library(samr)
+
+samdata <- list(x = as.matrix(counts), y = as.factor(meta$Condition), 
+                geneid = rownames(counts), logged2 = FALSE)
+sam_res <- SAMseq(samdata$x, samdata$y, resp.type = "Quantitative", nperms = 1000)
+sam_degs <- sam_res$siggenes.table
+sam_degs
+
 
 
 # Create a combined table for all the DE analysis pipelines.
 
-combined_results <- Reduce(function(x, y) merge(x, y, by = "GeneID", all = TRUE),
-                           list(DESeq2_table, edgeR_table, voom_table))
+combined_results <- merge(deseq_degs, edger_degs, by = colnames(edger_degs)[0], all = TRUE)
+combined_results <- merge(combined_results, noi_degs, by = colnames(deseq_degs)[0], all = TRUE)
+combined_results
+
+
+
+gene_ids <- rownames(combined_results)
+# Add gene lengths to DEGs using row names to match
+combined_results$Gene_Length <- gene_lengths[match(gene_ids, names(gene_lengths))]
+print(combined_results)
