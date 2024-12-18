@@ -5,7 +5,7 @@ if (!require("devtools", quietly = TRUE, )) {
 if (!require("tximport", quietly = TRUE, )) {
   BiocManager::install("tximport") }
 if (!requireNamespace("NOISeqBIO ", quietly = TRUE)) {
-  BiocManager::install("NOISeq") }
+  BiocManager::install("noiseqbio") }
 if (!requireNamespace("DESeq2", quietly = TRUE)) {
   BiocManager::install("DESeq2") }
 if (!requireNamespace("edgeR", quietly = TRUE)) {
@@ -106,16 +106,16 @@ head(meta)
 library(NOISeq)
 
 noi_obj <- readData(data = counts, factor = meta)
-noi_res <- noiseq(noi_obj, 
+noi_res <- noiseqbio(noi_obj, 
                   factor = "Condition", 
-                  norm = "tmm", 
-                  replicates = "biological")
+                  norm = "tmm")
 # *****This uses tmm normalisation*****
 up <- degenes(noi_res, q = 0.9, M = "up")
 down <- degenes(noi_res, q = 0.9, M = "down")
 noi_degs <- rbind(up, down)
 noi_degs
-
+write.csv(noi_res@results,"~/bioinformatics/noi_res.csv")
+DE.plot(noi_res, q = 0.9, graphic = "expr", log.scale = TRUE)
 
 # OUTPUT: noi_degs
 
@@ -145,7 +145,7 @@ library(limma)
 design <- model.matrix(~ 0 + meta$Condition)  
 colnames(design) <- c("Control", "Starvation")
 design # View design matrix
-v <- voom(counts, design, plot = FALSE) # Voom transformation
+v <- voom(counts, design, plot = T) # Voom transformation
 fit <- lmFit(v, design) # Fit with linear model
 
 contrast.matrix <- makeContrasts(
@@ -189,12 +189,13 @@ groups <- list(
   NDE = rep(1, length(Condition_factor)),  # Null hypothesis: All samples in one group
   DE  = as.numeric(Condition_factor)       # Alternative hypothesis: 1 = Control, 2 = Starvation
 )
-groups
+replicates <- as.character(meta$Condition)
 
 CD <- new("countData", 
           data = counts, 
-          replicates = as.factor(meta$Condition),  
-          groups = groups)
+          replicates = replicates,
+          groups = groups,
+          densityFunction = bbDensity)
 
 libsizes(CD) <- getLibsizes(CD)
 libsizes(CD)
@@ -214,16 +215,26 @@ CD2@posteriors[1:10,]
 CD2@posteriors[101:110,]
 CD2@estProps[2]
 
-write.csv(cbind(CD2@annotation, CD2@posteriors),"~/bioinformatics/posteriors.csv")
+write.csv(cbind(CD2@annotation, CD2@posteriors),"~/bioinformatics/bayseq_beta.csv")
 
 stopCluster(cl)
 
-topCounts(CD2, group = "DE")
 
 plotMA.CD(CD2, samplesA = "control", samplesB = "starvation",
           col = c(rep("red", 100), rep("black", 900)))
 
-saveRDS(CD, file = "~/bioinformatics/CD_object_with_posteriors.rds")
+topCounts(CD2, group = "DE", normaliseData = TRUE)  
+
+
+
+
+
+
+
+
+
+
+
 
 
 bayseq <- read.csv("~/bioinformatics/bayseq_res.csv")
@@ -268,12 +279,12 @@ legend("topright", legend = c("All genes", "Differentially expressed"), fill = c
 write.csv(merged_df, "~/bioinformatics/DE_results_with_length/edger_lengths.csv")
 
 
-noiseq <- read.csv("~/bioinformatics/noiseq_res.csv")
+noiseq <- read.csv("~/bioinformatics/noi_res.csv")
 merged_df <- merge(noiseq, gene_lengths, by.x = "name", by.y = "row.names", all.x = TRUE)
 hist(merged_df$rowMeans.txi.length..na.rm...TRUE., main="NOISeq", xlim=c(0,20000),
      col = rgb(1, 0, 0, 0.5), breaks = 50, xlab = "Gene Length")
 
-noiseq_de <- subset(merged_df, prob < 0.05 )
+noiseq_de <- subset(merged_df, prob > 0.95 )
 hist(noiseq_de$rowMeans.txi.length..na.rm...TRUE., breaks = 50, 
      col = rgb(0, 0, 1, 0.5), add = TRUE )
 
@@ -412,10 +423,10 @@ ggplot(edger, aes(x = logFC, y = neg_log10_pvalue)) +
 
 
 noiseq <- na.omit(noiseq)
-noiseq$neg_log10_pvalue <- log10(noiseq$prob)
+noiseq$neg_log10_pvalue <- -log10(1-noiseq$prob)
 # Create a volcano plot
-ggplot(noiseq, aes(x = M, y = neg_log10_pvalue)) +
-  geom_point(aes(color = prob > 0.95), size = 1) +  # Color points based on p-value significance
+ggplot(noiseq, aes(x = log2FC, y = neg_log10_pvalue)) +
+  geom_point(aes(color = 1-prob < 0.05), size = 1) +  # Color points based on p-value significance
   theme_minimal() +
   labs(x = "Log Fold Change", y = "-log10(p-value)", title = "noiseq") +
   scale_color_manual(values = c("gray", "black"))  # Red for significant points
