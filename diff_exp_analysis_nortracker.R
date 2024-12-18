@@ -20,6 +20,8 @@ if (!requireNamespace("baySeq", quietly = TRUE)) {
   BiocManager::install("baySeq") }
 if (!requireNamespace("parallel", quietly = TRUE)) {
   BiocManager::install("parallel") }
+if (!requireNamespace("ggplot2", quietly = TRUE)) {
+  BiocManager::install("ggplot2") }
 library(parallel)
 library(tximport)
 library(DESeq2)
@@ -85,12 +87,10 @@ tx2gene <- na.omit(tx2gene)
 # Get count data
 txi <- tximport(paths_df$paths, type = "salmon", tx2gene = tx2gene)
 counts <- txi$counts # Extract counts
-gene_lengths <- rowMeans(txi$length, na.rm = TRUE) # Keep average gene lengths
-gene_names <- rownames(counts)
-
-# save this data
-write.csv(gene_lengths, "~/bioinformatics/gene_lengths.csv", row.names = FALSE)
-write.csv(gene_names, "~/bioinformatics/gene_names.csv", row.names = FALSE)
+txi$length
+gene_lengths <- data.frame(row.names = rownames(counts), rowMeans(txi$length, na.rm = TRUE)) 
+gene_lengths
+write.csv(gene_lengths, "~/bioinformatics/gene_lengths.csv")
 
 # Metadata
 meta <- data.frame(
@@ -123,11 +123,9 @@ noi_degs
 library(DESeq2)
 counts <- round(counts)
 dds <- DESeqDataSetFromMatrix(countData = counts, colData = meta, design = ~ Condition)
-dds
 dds <- DESeq(dds)
 deseq_res <- results(dds)
-deseq_res
-
+topTable(dds)
 
 # OUTPUT: DESeq2_degs
 
@@ -135,13 +133,11 @@ deseq_res
 library(edgeR)
 
 dge <- DGEList(counts = counts, group = meta$Condition)
-dge
 dge <- calcNormFactors(dge) # TMM - Trimmed Mean of M-values
 dge <- estimateDisp(dge)
 dge_result <- exactTest(dge) # the exact test (for 2-group comparison)
 edger <- topTags(dge_result)
 edger_degs <- edger[edger$PValue < 0.05, ] # Only DEs < 0.05 
-edger_degs
 
 # Voom
 library(limma)
@@ -161,6 +157,18 @@ contrast.matrix
 fit <- contrasts.fit(fit, contrasts = contrast.matrix)  # DE analysis between conditions
 fit <- eBayes(fit) 
 limma_res <- topTable(fit, adjust = "BH", sort.by = "P", number = Inf)  
+
+
+library(samr)
+samdata <- list(x = as.matrix(counts), y = as.factor(meta$Condition), 
+                geneid = rownames(counts), genenames = rownames(counts), logged2=FALSE)
+
+samr.obj <- samr(samdata, resp.type="Two class unpaired", nperms=1000)
+pv=samr.pvalues.from.perms(samr.obj$tt, samr.obj$ttstar)
+
+write.csv(pv,"~/bioinformatics/samr_res.csv")
+write.csv(samr.obj$foldchange,"~/bioinformatics/samr_logfc.csv")
+
 
 
 #Sleuth
@@ -206,7 +214,7 @@ CD2@posteriors[1:10,]
 CD2@posteriors[101:110,]
 CD2@estProps[2]
 
-write.csv(topCounts(CD2, group = "DE"),"~/bioinformatics/posteriors.csv")
+write.csv(cbind(CD2@annotation, CD2@posteriors),"~/bioinformatics/posteriors.csv")
 
 stopCluster(cl)
 
@@ -214,3 +222,213 @@ topCounts(CD2, group = "DE")
 
 plotMA.CD(CD2, samplesA = "control", samplesB = "starvation",
           col = c(rep("red", 100), rep("black", 900)))
+
+saveRDS(CD, file = "~/bioinformatics/CD_object_with_posteriors.rds")
+
+
+bayseq <- read.csv("~/bioinformatics/bayseq_res.csv")
+merged_df <- merge(bayseq, gene_lengths, by.x = "name", by.y = "row.names", all.x = TRUE)
+hist(merged_df$rowMeans.txi.length..na.rm...TRUE., main="BaySeq", xlim=c(0,20000),
+     col = rgb(1, 0, 0, 0.5), breaks = 50, xlab = "Gene Length")
+
+bayes_de <- subset(merged_df, DE > -0.05 )
+hist(bayes_de$rowMeans.txi.length..na.rm...TRUE., breaks = 50, 
+     col = rgb(0, 0, 1, 0.5), add = TRUE )
+
+legend("topright", legend = c("All genes", "Differentially expressed"), fill = c(rgb(1, 0, 0, 0.5), rgb(0, 0, 1, 0.5)))
+
+write.csv(merged_df, "~/bioinformatics/DE_results_with_length/bay_lengths.csv")
+
+
+limma <- read.csv("~/bioinformatics/limma_res.csv")
+merged_df <- merge(limma, gene_lengths, by.x = "name", by.y = "row.names", all.x = TRUE)
+hist(merged_df$rowMeans.txi.length..na.rm...TRUE., main="Limma", xlim=c(0,20000),
+     col = rgb(1, 0, 0, 0.5), breaks = 50, xlab = "Gene Length")
+
+limma_de <- subset(merged_df, adj.P.Val < 0.05 )
+hist(limma_de$rowMeans.txi.length..na.rm...TRUE., breaks = 50, 
+     col = rgb(0, 0, 1, 0.5), add = TRUE )
+
+legend("topright", legend = c("All genes", "Differentially expressed"), fill = c(rgb(1, 0, 0, 0.5), rgb(0, 0, 1, 0.5)))
+
+write.csv(merged_df, "~/bioinformatics/DE_results_with_length/limma_lengths.csv")
+
+
+edger <- read.csv("~/bioinformatics/edger_res.csv")
+merged_df <- merge(edger, gene_lengths, by.x = "name", by.y = "row.names", all.x = TRUE)
+hist(merged_df$rowMeans.txi.length..na.rm...TRUE., main="EdgeR", xlim=c(0,20000),
+     col = rgb(1, 0, 0, 0.5), breaks = 50, xlab = "Gene Length")
+
+edger_de <- subset(merged_df, PValue < 0.05 )
+hist(edger_de$rowMeans.txi.length..na.rm...TRUE., breaks = 50, 
+     col = rgb(0, 0, 1, 0.5), add = TRUE )
+
+legend("topright", legend = c("All genes", "Differentially expressed"), fill = c(rgb(1, 0, 0, 0.5), rgb(0, 0, 1, 0.5)))
+
+write.csv(merged_df, "~/bioinformatics/DE_results_with_length/edger_lengths.csv")
+
+
+noiseq <- read.csv("~/bioinformatics/noiseq_res.csv")
+merged_df <- merge(noiseq, gene_lengths, by.x = "name", by.y = "row.names", all.x = TRUE)
+hist(merged_df$rowMeans.txi.length..na.rm...TRUE., main="NOISeq", xlim=c(0,20000),
+     col = rgb(1, 0, 0, 0.5), breaks = 50, xlab = "Gene Length")
+
+noiseq_de <- subset(merged_df, prob < 0.05 )
+hist(noiseq_de$rowMeans.txi.length..na.rm...TRUE., breaks = 50, 
+     col = rgb(0, 0, 1, 0.5), add = TRUE )
+
+legend("topright", legend = c("All genes", "Differentially expressed"), fill = c(rgb(1, 0, 0, 0.5), rgb(0, 0, 1, 0.5)))
+
+svg("~/bioinformatics/NOISeq_hist.svg")
+
+write.csv(merged_df, "~/bioinformatics/DE_results_with_length/noiseq_lengths.csv")
+
+
+deseq <- read.csv("~/bioinformatics/deseq_res.csv")
+merged_df <- merge(deseq, gene_lengths, by.x = "name", by.y = "row.names", all.x = TRUE)
+hist(merged_df$rowMeans.txi.length..na.rm...TRUE., main="DESeq2", xlim=c(0,20000),
+     col = rgb(1, 0, 0, 0.5), breaks = 50, xlab = "Gene Length")
+
+deseq_de <- subset(merged_df, padj < 0.05 )
+hist(deseq_de$rowMeans.txi.length..na.rm...TRUE., breaks = 50, 
+     col = rgb(0, 0, 1, 0.5), add = TRUE )
+
+legend("topright", legend = c("All genes", "Differentially expressed"), fill = c(rgb(1, 0, 0, 0.5), rgb(0, 0, 1, 0.5)))
+
+write.csv(merged_df, "~/bioinformatics/DE_results_with_length/deseq_lengths.csv")
+
+samr <- read.csv("~/bioinformatics/samr_res.csv")
+
+merged_df <- merge(samr, gene_lengths, by.x = "name", by.y = "row.names", all.x = TRUE)
+merged_df
+hist(merged_df$rowMeans.txi.length..na.rm...TRUE., main="samr", xlim=c(0,20000),
+     col = rgb(1, 0, 0, 0.5), breaks = 50, xlab = "Gene Length")
+
+samr_de <- subset(merged_df, x < 0.05 )
+hist(samr_de$rowMeans.txi.length..na.rm...TRUE., breaks = 50, 
+     col = rgb(0, 0, 1, 0.5), add = TRUE )
+
+legend("topright", legend = c("All genes", "Differentially expressed"), fill = c(rgb(1, 0, 0, 0.5), rgb(0, 0, 1, 0.5)))
+
+write.csv(merged_df, "~/bioinformatics/DE_results_with_length/samr_lengths.csv")
+
+
+
+# Find the common genes across methods
+
+
+common_genes <- intersect(
+  samr_de$name,    # Extract gene identifiers from SAMR result
+  intersect(
+    deseq_de$name, # Extract gene identifiers from DESeq2 result
+    intersect(
+      limma_de$name, # Extract gene identifiers from limma result
+      bayes_de$name   # Extract gene identifiers from bayes result
+    )
+  )
+)
+
+common_genes
+
+counts_meta <- counts
+colnames(counts_meta) <- meta$Condition
+counts_meta
+
+# Extract expression data for the common genes
+expression_data <- counts_meta[common_genes, ]  # Assuming 'expression_matrix' has gene names as row names
+
+# Create a heatmap using the 'pheatmap' package
+library(pheatmap)
+
+# Plot the heatmap
+expression <- counts_meta[edger_de$name, ]
+
+hmap <- pheatmap(expression, scale = "row", clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", main="edgeR heatmap",
+         show_colnames = TRUE)
+
+expression <- counts_meta[noiseq_de$name, ]
+
+hmap <- pheatmap(expression, scale = "row", clustering_distance_rows = "euclidean", 
+                 clustering_distance_cols = "euclidean", main="NOISeq heatmap",
+                 show_colnames = TRUE)
+
+expression <- counts_meta[limma_de$name, ]
+
+hmap <- pheatmap(expression, scale = "row", clustering_distance_rows = "euclidean", 
+                 clustering_distance_cols = "euclidean", main="limma heatmap",
+                 show_colnames = TRUE)
+
+expression <- counts_meta[bayes_de$name, ]
+
+hmap <- pheatmap(expression, scale = "row", clustering_distance_rows = "euclidean", 
+                 clustering_distance_cols = "euclidean", main="baySeq heatmap",
+                 show_colnames = TRUE)
+
+expression <- counts_meta[deseq_de$name, ]
+
+hmap <- pheatmap(expression, scale = "row", clustering_distance_rows = "euclidean", 
+                 clustering_distance_cols = "euclidean", main="DESeq2 heatmap",
+                 show_colnames = TRUE)
+
+expression <- counts_meta[edger_de$name, ]
+
+hmap <- pheatmap(expression, scale = "row", clustering_distance_rows = "euclidean", 
+                 clustering_distance_cols = "euclidean", main="edgeR heatmap",
+                 show_colnames = TRUE)
+
+expression <- counts_meta[samr_de$name, ]
+
+hmap <- pheatmap(expression, scale = "row", clustering_distance_rows = "euclidean", 
+                 clustering_distance_cols = "euclidean", main="samR heatmap",
+                 show_colnames = TRUE)
+
+
+
+library(ggplot2)
+deseq$neg_log10_pvalue <- -log10(deseq$padj)
+# Create a volcano plot
+ggplot(deseq, aes(x = log2FoldChange, y = neg_log10_pvalue)) +
+  geom_point(aes(color = pvalue < 0.05), size = 1) +  # Color points based on p-value significance
+  theme_minimal() +
+  labs(x = "Log Fold Change", y = "-log10(p-value)", title = "DESeq2") +
+  scale_color_manual(values = c("gray", "black"))  # Red for significant points
+
+limma$neg_log10_pvalue <- -log10(limma$adj.P.Val)
+# Create a volcano plot
+ggplot(limma, aes(x = logFC, y = neg_log10_pvalue)) +
+  geom_point(aes(color = adj.P.Val < 0.05), size = 1) +  # Color points based on p-value significance
+  theme_minimal() +
+  labs(x = "Log Fold Change", y = "-log10(p-value)", title = "limma") +
+  scale_color_manual(values = c("gray", "black"))  # Red for significant points
+
+edger$neg_log10_pvalue <- -log10(edger$PValue)
+# Create a volcano plot
+ggplot(edger, aes(x = logFC, y = neg_log10_pvalue)) +
+  geom_point(aes(color = PValue < 0.05), size = 1) +  # Color points based on p-value significance
+  theme_minimal() +
+  labs(x = "Log Fold Change", y = "-log10(p-value)", title = "edgeR") +
+  scale_color_manual(values = c("gray", "black"))  # Red for significant points
+
+
+noiseq <- na.omit(noiseq)
+noiseq$neg_log10_pvalue <- log10(noiseq$prob)
+# Create a volcano plot
+ggplot(noiseq, aes(x = M, y = neg_log10_pvalue)) +
+  geom_point(aes(color = prob > 0.95), size = 1) +  # Color points based on p-value significance
+  theme_minimal() +
+  labs(x = "Log Fold Change", y = "-log10(p-value)", title = "noiseq") +
+  scale_color_manual(values = c("gray", "black"))  # Red for significant points
+
+
+samr <- read.csv("~/bioinformatics/samr_res.csv")
+
+samr$neg_log10_pvalue <- -log10(samr$pvalue)
+# Create a volcano plot
+ggplot(samr, aes(x = logFC, y = neg_log10_pvalue)) +
+  geom_point(aes(color = pvalue < 0.05), size = 1) +  # Color points based on p-value significance
+  theme_minimal() +
+  labs(x = "Log Fold Change", y = "-log10(p-value)", title = "samr") +
+  scale_color_manual(values = c("gray", "black"))  # Red for significant points
+
+
